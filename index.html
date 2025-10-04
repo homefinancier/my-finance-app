@@ -24,10 +24,9 @@
         .tab-item { display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 10px; color: var(--hint-color); text-decoration: none; flex-grow: 1; } .tab-item.active { color: var(--accent-primary); } .tab-item .icon { font-size: 24px; }
     </style>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="data.js"></script>
+    <script src="./data.js"></script> <!-- Изменено: Указываем локальный путь -->
 </head>
 <body>
-
     <div id="loading-screen" class="screen active" style="text-align: center;"><h1>Загрузка...</h1></div>
     <div id="onboarding-screen" class="screen">
         <h1 id="onboarding-title">Добро пожаловать!</h1>
@@ -45,49 +44,33 @@
             <a href="#" class="tab-item"><span class="icon">🔑</span><span>Профиль</span></a>
         </nav>
     </div>
-
     <script>
         const tg = window.Telegram.WebApp;
         tg.expand();
         tg.ready();
 
-        let userData = {}; // Здесь будут храниться данные пользователя с сервера
+        const API_BASE_URL = "https://your-ngrok-url-will-be-here.ngrok-free.dev"; 
 
-        // --- API-клиент для общения с бэкендом ---
+        let userData = {};
         const api = {
-            // Метод для получения данных
             getUserData: async () => {
-                const response = await fetch('/api/get_user_data', {
-                    headers: { 'Authorization': `tma ${tg.initData}` }
-                });
+                const response = await fetch(`${API_BASE_URL}/api/get_user_data`, { headers: { 'Authorization': `tma ${tg.initData}` } });
+                if (!response.ok) throw new Error(`Ошибка сети: ${response.statusText}`);
                 return response.json();
             },
-            // Метод для сохранения данных
             saveUserData: async (data) => {
-                await fetch('/api/save_user_data', {
-                    method: 'POST',
-                    headers: { 
-                        'Content-Type': 'application/json',
-                        'Authorization': `tma ${tg.initData}` 
-                    },
-                    body: JSON.stringify(data)
-                });
+                await fetch(`${API_BASE_URL}/api/save_user_data`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `tma ${tg.initData}` }, body: JSON.stringify(data) });
             }
         };
-
-        // --- Логика экранов ---
         const screens = { loading: document.getElementById('loading-screen'), onboarding: document.getElementById('onboarding-screen'), main: document.getElementById('main-screen') };
         function showScreen(name) {
             Object.values(screens).forEach(s => s.classList.remove('active'));
             screens[name].classList.add('active');
         }
-
-        // --- Логика Онбординга ---
         function setupOnboarding() {
             showScreen('onboarding');
             tg.MainButton.setText("Сохранить и начать путь").show();
-            
-            tg.onEvent('mainButtonClicked', async function onGoalSubmit() {
+            const onGoalSubmit = async () => {
                 const goalText = document.getElementById('goal-input').value;
                 if (goalText.trim().length > 5) {
                     tg.MainButton.showProgress();
@@ -96,30 +79,19 @@
                     tg.MainButton.hideProgress().hide();
                     tg.offEvent('mainButtonClicked', onGoalSubmit);
                     showMainScreen();
-                } else {
-                    tg.showAlert("Пожалуйста, опишите вашу цель подробнее.");
-                }
-            });
+                } else { tg.showAlert("Пожалуйста, опишите вашу цель подробнее."); }
+            };
+            tg.onEvent('mainButtonClicked', onGoalSubmit);
         }
-        
-        // --- Логика Главного Экрана ---
         function showMainScreen() {
             showScreen('main');
             renderNextStep();
             renderPath();
         }
-        
         function renderNextStep() {
             const nextStep = learningPath.find(step => !userData.completedSteps.includes(step.id));
-            if (nextStep) {
-                document.getElementById('next-step-container').innerHTML = `
-                    <div class="next-step-card" onclick="handleStepClick('${nextStep.id}')">
-                        <span class="tag">Следующий шаг</span>
-                        <h2>${nextStep.title}</h2>
-                    </div>`;
-            } else { /* ... */ }
+            document.getElementById('next-step-container').innerHTML = nextStep ? `<div class="next-step-card" onclick="handleStepClick('${nextStep.id}')"><span class="tag">Следующий шаг</span><h2>${nextStep.title}</h2></div>` : `<h2>Поздравляем! Вы прошли весь путь!</h2>`;
         }
-        
         function renderPath() {
             const container = document.getElementById('path-container');
             container.innerHTML = '';
@@ -128,26 +100,24 @@
                 container.innerHTML += `<div class="path-item ${isCompleted ? 'completed' : ''}"><div class="icon">${isCompleted ? '✓' : index + 1}</div><div class="title">${step.title}</div></div>`;
             });
         }
-        
         async function handleStepClick(stepId) {
             const step = learningPath.find(s => s.id === stepId);
             if (!step) return;
-
             if (step.type === 'article') {
                 tg.openLink(step.url);
                 tg.MainButton.setText("Я прочитал, засчитать шаг").show();
-                tg.onEvent('mainButtonClicked', async function onStepComplete() {
+                const onStepComplete = async () => {
                     tg.MainButton.showProgress();
                     await completeStep(stepId);
                     tg.MainButton.hideProgress().hide();
                     tg.offEvent('mainButtonClicked', onStepComplete);
-                });
+                };
+                tg.onEvent('mainButtonClicked', onStepComplete);
             } else if (step.type === 'tool') {
                 tg.showAlert(`Инструмент "${step.title}" пока в разработке.`);
                 await completeStep(stepId);
             }
         }
-        
         async function completeStep(stepId) {
             if (!userData.completedSteps.includes(stepId)) {
                 userData.completedSteps.push(stepId);
@@ -156,21 +126,12 @@
                 renderPath();
             }
         }
-
-        // --- Инициализация приложения ---
         async function init() {
             try {
                 userData = await api.getUserData();
-                if (userData && userData.goal) {
-                    showMainScreen();
-                } else {
-                    setupOnboarding();
-                }
-            } catch (e) {
-                document.getElementById('loading-screen').innerHTML = `<h1>Ошибка загрузки: ${e.message}</h1>`;
-            }
+                if (userData && userData.goal) { showMainScreen(); } else { setupOnboarding(); }
+            } catch (e) { document.getElementById('loading-screen').innerHTML = `<h1>Ошибка загрузки</h1><p style="color: var(--hint-color);">${e.message}</p><p style="font-size: 12px;">Убедитесь, что API-сервер запущен и ngrok-адрес в коде актуален.</p>`; }
         }
-        
         init();
     </script>
 </body>
