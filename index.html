@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Домашний Финансист</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700&family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root { --main-bg: #1E2025; --card-bg: #2D3035; --text-color: #F5F0E8; --accent-primary: #D97D54; --accent-secondary: #5A7D7C; --hint-color: #8A8F98; }
+        body { font-family: 'Inter', sans-serif; margin: 0; background-color: var(--main-bg); color: var(--text-color); }
+        .screen { display: none; padding: 20px; box-sizing: border-box; }
+        .screen.active { display: block; }
+        h1, h2 { font-family: 'Merriweather', serif; }
+        
+        #onboarding-screen { height: 100vh; display: flex; flex-direction: column; justify-content: center; text-align: center; }
+        #onboarding-screen h1 { font-size: 24px; } #onboarding-screen p { color: var(--hint-color); font-size: 16px; line-height: 1.5; } #onboarding-screen textarea { width: 100%; height: 100px; background-color: var(--card-bg); border: 1px solid #444; border-radius: 8px; color: var(--text-color); font-size: 16px; padding: 10px; box-sizing: border-box; margin-top: 20px; }
+        
+        #main-screen { padding-bottom: 80px; }
+        .welcome-header h1 { font-size: 26px; margin: 0; } .welcome-header p { font-size: 16px; color: var(--hint-color); margin: 4px 0 0 0; } .section-title { font-size: 20px; margin: 30px 0 15px 0; }
+        .next-step-card { background-color: var(--card-bg); border-radius: 16px; padding: 20px; cursor: pointer; border: 1px solid var(--accent-primary); } .next-step-card .tag { background-color: var(--accent-primary); color: white; padding: 5px 12px; border-radius: 20px; font-size: 12px; display: inline-block; margin-bottom: 15px; } .next-step-card h2 { font-size: 22px; margin: 0 0 10px 0; }
+        .path-container { margin-top: 15px; } .path-item { display: flex; align-items: center; margin-bottom: 10px; } .path-item .icon { width: 24px; height: 24px; border-radius: 50%; background-color: var(--card-bg); color: var(--hint-color); display: flex; align-items: center; justify-content: center; margin-right: 12px; font-weight: bold; } .path-item.completed .icon { background-color: var(--accent-secondary); color: white; } .path-item.completed .title { text-decoration: line-through; color: var(--hint-color); }
+        
+        .tab-bar { position: fixed; bottom: 0; left: 0; right: 0; height: 60px; background-color: var(--card-bg); border-top: 1px solid #3a3d42; display: flex; justify-content: space-around; padding-top: 5px; padding-bottom: env(safe-area-inset-bottom); }
+        .tab-item { display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 10px; color: var(--hint-color); text-decoration: none; flex-grow: 1; } .tab-item.active { color: var(--accent-primary); } .tab-item .icon { font-size: 24px; }
+    </style>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="data.js"></script>
+</head>
+<body>
+
+    <div id="loading-screen" class="screen active" style="text-align: center;"><h1>Загрузка...</h1></div>
+    <div id="onboarding-screen" class="screen">
+        <h1 id="onboarding-title">Добро пожаловать!</h1>
+        <p>Прежде чем мы начнем, ответьте на один вопрос:<br><b>Каким вы хотите видеть свой обычный вторник через 10 лет?</b></p>
+        <textarea id="goal-input" placeholder="Напишите здесь свою цель..."></textarea>
+    </div>
+    <div id="main-screen" class="screen">
+        <div class="welcome-header"> <h1 id="welcome-title">Ваш путь</h1> <p>Шаг за шагом к финансовой свободе</p> </div>
+        <h2 class="section-title">Ваш следующий шаг</h2> <div id="next-step-container"></div>
+        <h2 class="section-title">Карта пути</h2> <div id="path-container"></div>
+        <nav class="tab-bar">
+            <a href="#" class="tab-item active"><span class="icon">🧭</span><span>Мой путь</span></a>
+            <a href="#" class="tab-item"><span class="icon">📚</span><span>База знаний</span></a>
+            <a href="#" class="tab-item"><span class="icon">🔧</span><span>Мастерская</span></a>
+            <a href="#" class="tab-item"><span class="icon">🔑</span><span>Профиль</span></a>
+        </nav>
+    </div>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+        tg.ready();
+
+        let userData = {}; // Здесь будут храниться данные пользователя с сервера
+
+        // --- API-клиент для общения с бэкендом ---
+        const api = {
+            // Метод для получения данных
+            getUserData: async () => {
+                const response = await fetch('/api/get_user_data', {
+                    headers: { 'Authorization': `tma ${tg.initData}` }
+                });
+                return response.json();
+            },
+            // Метод для сохранения данных
+            saveUserData: async (data) => {
+                await fetch('/api/save_user_data', {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': `tma ${tg.initData}` 
+                    },
+                    body: JSON.stringify(data)
+                });
+            }
+        };
+
+        // --- Логика экранов ---
+        const screens = { loading: document.getElementById('loading-screen'), onboarding: document.getElementById('onboarding-screen'), main: document.getElementById('main-screen') };
+        function showScreen(name) {
+            Object.values(screens).forEach(s => s.classList.remove('active'));
+            screens[name].classList.add('active');
+        }
+
+        // --- Логика Онбординга ---
+        function setupOnboarding() {
+            showScreen('onboarding');
+            tg.MainButton.setText("Сохранить и начать путь").show();
+            
+            tg.onEvent('mainButtonClicked', async function onGoalSubmit() {
+                const goalText = document.getElementById('goal-input').value;
+                if (goalText.trim().length > 5) {
+                    tg.MainButton.showProgress();
+                    await api.saveUserData({ goal: goalText, completedSteps: [] });
+                    userData = await api.getUserData();
+                    tg.MainButton.hideProgress().hide();
+                    tg.offEvent('mainButtonClicked', onGoalSubmit);
+                    showMainScreen();
+                } else {
+                    tg.showAlert("Пожалуйста, опишите вашу цель подробнее.");
+                }
+            });
+        }
+        
+        // --- Логика Главного Экрана ---
+        function showMainScreen() {
+            showScreen('main');
+            renderNextStep();
+            renderPath();
+        }
+        
+        function renderNextStep() {
+            const nextStep = learningPath.find(step => !userData.completedSteps.includes(step.id));
+            if (nextStep) {
+                document.getElementById('next-step-container').innerHTML = `
+                    <div class="next-step-card" onclick="handleStepClick('${nextStep.id}')">
+                        <span class="tag">Следующий шаг</span>
+                        <h2>${nextStep.title}</h2>
+                    </div>`;
+            } else { /* ... */ }
+        }
+        
+        function renderPath() {
+            const container = document.getElementById('path-container');
+            container.innerHTML = '';
+            learningPath.forEach((step, index) => {
+                const isCompleted = userData.completedSteps.includes(step.id);
+                container.innerHTML += `<div class="path-item ${isCompleted ? 'completed' : ''}"><div class="icon">${isCompleted ? '✓' : index + 1}</div><div class="title">${step.title}</div></div>`;
+            });
+        }
+        
+        async function handleStepClick(stepId) {
+            const step = learningPath.find(s => s.id === stepId);
+            if (!step) return;
+
+            if (step.type === 'article') {
+                tg.openLink(step.url);
+                tg.MainButton.setText("Я прочитал, засчитать шаг").show();
+                tg.onEvent('mainButtonClicked', async function onStepComplete() {
+                    tg.MainButton.showProgress();
+                    await completeStep(stepId);
+                    tg.MainButton.hideProgress().hide();
+                    tg.offEvent('mainButtonClicked', onStepComplete);
+                });
+            } else if (step.type === 'tool') {
+                tg.showAlert(`Инструмент "${step.title}" пока в разработке.`);
+                await completeStep(stepId);
+            }
+        }
+        
+        async function completeStep(stepId) {
+            if (!userData.completedSteps.includes(stepId)) {
+                userData.completedSteps.push(stepId);
+                await api.saveUserData({ completedSteps: userData.completedSteps });
+                renderNextStep();
+                renderPath();
+            }
+        }
+
+        // --- Инициализация приложения ---
+        async function init() {
+            try {
+                userData = await api.getUserData();
+                if (userData && userData.goal) {
+                    showMainScreen();
+                } else {
+                    setupOnboarding();
+                }
+            } catch (e) {
+                document.getElementById('loading-screen').innerHTML = `<h1>Ошибка загрузки: ${e.message}</h1>`;
+            }
+        }
+        
+        init();
+    </script>
+</body>
+</html>
